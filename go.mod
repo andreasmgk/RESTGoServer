@@ -1,4 +1,4 @@
-module github.com/andreasmgk/RESTGoServer/main
+module github.com/andreasmgk/RESTGoServer
 
 go 1.17
 
