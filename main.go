@@ -8,19 +8,36 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/jinzhu/gorm"
+	_ "github.com/jinzhu/gorm/dialects/sqlite"
 )
 
+var db *gorm.DB
+var err error
+
 type Article struct {
-    Id string `json:"Id"`
+    gorm.Model
+    Key string `json:"Key"`
     Title string `json:"Title"`
     Desc string `json:"desc"`
     Content string `json:"content"`
 }
 
-// a global Articles array
-// that will then be populated in the main function
-// to simulate a database
-var Articles []Article
+
+// our initial migration function
+func initialMigration() {
+    db, err = gorm.Open("mysql", "andreasmg:HsnTO57$@tcp(127.0.0.1:3306)/test?charset=utf8&parseTime=True")
+    if err != nil {
+        fmt.Println(err.Error())
+        panic("failed to connect database")
+    }
+    //defer db.Close()
+
+    // Migrate the schema
+    db.AutoMigrate(&Article{})
+}
 
 // handles all requests to the root URL
 func homePage(w http.ResponseWriter, r *http.Request){
@@ -35,17 +52,21 @@ func handleRequests() {
     myRouter.HandleFunc("/", homePage)
     myRouter.HandleFunc("/articles", returnAllArticles).Methods("GET") // add the /articles route and map it to the returnAllArticles function
     myRouter.HandleFunc("/article", createNewArticle).Methods("POST") // add the /articles route and map it to the createNewArticle function
-    myRouter.HandleFunc("/article/{id}", updateArticle).Methods("PATCH") // add the /articles/{id} route and map it to the updateArticle function
-    myRouter.HandleFunc("/article/{id}", deleteArticle).Methods("DELETE") // add the /articles/{id} route and map it to the deleteArticle function
-    myRouter.HandleFunc("/article/{id}", returnSingleArticle).Methods("GET") // add the /articles/{id} route and map it to the returnSingleArticle function
-    log.Fatal(http.ListenAndServe(":10000", myRouter)) // the API start up on port 10000 if it’s not already been taken by another process
+    myRouter.HandleFunc("/article/{key}", updateArticle).Methods("PATCH") // add the /articles/{id} route and map it to the updateArticle function
+    myRouter.HandleFunc("/article/{key}", deleteArticle).Methods("DELETE") // add the /articles/{id} route and map it to the deleteArticle function
+    myRouter.HandleFunc("/article/{key}", returnSingleArticle).Methods("GET") // add the /articles/{id} route and map it to the returnSingleArticle function
+    log.Fatal(http.ListenAndServe(":10000", myRouter)) // the API starts up on port 10000 if it’s not already been taken by another process
 }
 
 func returnAllArticles(w http.ResponseWriter, r *http.Request){
     fmt.Println("Endpoint Hit: returnAllArticles")
 
+    articles := []Article{}
+    db.Find(&articles)
+    fmt.Println("{}", articles)
+
     // return all the articles encoded as JSON
-    json.NewEncoder(w).Encode(Articles)
+    json.NewEncoder(w).Encode(articles)
 }
 
 func returnSingleArticle(w http.ResponseWriter, r *http.Request){
@@ -56,16 +77,19 @@ func returnSingleArticle(w http.ResponseWriter, r *http.Request){
 
     // extract the `id` of the article 
     // to be returned
-    key := vars["id"]
+    k := vars["key"]
 
-    // Loop over all of the Articles
-    // if the article.Id equals the key passed in
-    // return the article encoded as JSON
-    for _, article := range Articles {
-        if article.Id == key {
+    articles := []Article{}
+    db.Find(&articles)
+    
+    for _, article := range articles {
+        // string to int
+        if article.Key == k {
+            fmt.Println(article)
+            fmt.Println("Endpoint Hit: Article No:",k)
             json.NewEncoder(w).Encode(article)
         }
-    }
+     }
 }
 
 func createNewArticle(w http.ResponseWriter, r *http.Request) {
@@ -77,11 +101,16 @@ func createNewArticle(w http.ResponseWriter, r *http.Request) {
     reqBody, _ := ioutil.ReadAll(r.Body)
     var article Article 
     json.Unmarshal(reqBody, &article)
-    
-    // update the global Articles array to include
-    // the new Article
-    Articles = append(Articles, article)
 
+    //id := article.Id
+    //title := article.Title
+    //desc := article.Desc
+    //content := article.Content
+
+    //Article{Id: id, Title: title, Desc: desc, Content: content}
+    db.Create(&article)
+
+    fmt.Fprintf(w, "New Article Successfully Created")
     json.NewEncoder(w).Encode(article)
 }
 
@@ -92,20 +121,23 @@ func deleteArticle(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
 
     // extract the `id` of the article 
-    // to be delete
-    id := vars["id"]
+    // to be deleted
+    k := vars["key"]
+    /*
+    var article Article
+    db.Where("Key = ?", k).Find(&article)
 
-    // loop through all the articles
-    for index, article := range Articles {
-        // if the id path parameter matches one of the
-        // articles
-        if article.Id == id {
-            // update the Articles array to remove the 
-            // article
-            Articles = append(Articles[:index], Articles[index+1:]...)
+    db.Delete(&article)
+    */
+    articles := []Article{}
+    db.Find(&articles)
+
+    for _, a := range articles {
+        if a.Key == k {
+            db.Delete(&a)
+            fmt.Fprintf(w, "Successfully Deleted Article")
         }
     }
-
 }
 
 func updateArticle(w http.ResponseWriter, r *http.Request) {
@@ -116,27 +148,27 @@ func updateArticle(w http.ResponseWriter, r *http.Request) {
     reqBody, _ := ioutil.ReadAll(r.Body)
     var article Article 
     json.Unmarshal(reqBody, &article)
-    
-    // loop through all the articles
-    for index, a := range Articles {
-        // if the id path parameter matches one of the
-        // articles
-        if a.Id == article.Id {
-            // update the specific article with the
-            // new parameter values
-            Articles[index].Title = article.Title
-            Articles[index].Desc  = article.Desc
-            Articles[index].Content = article.Content
-        }
-    }
 
-    json.NewEncoder(w).Encode(article)
+    //db.Where("Key = ?", k).Find(&article)
+
+    articles := []Article{}
+    db.Find(&articles)
+
+    for _, a := range articles {
+        // string to int
+        if a.Key == article.Key {
+            a.Title = article.Title
+            a.Desc = article.Desc
+            a.Content = article.Content
+            db.Save(&a)
+            json.NewEncoder(w).Encode(a)
+            fmt.Fprintf(w, "Successfully Updated Article")
+        }
+     }
 }
 
 func main() {
-    Articles = []Article{
-        {Id: "1", Title: "Hello", Desc: "Article Description", Content: "Article Content"},
-        {Id: "2", Title: "Hello 2", Desc: "Article Description", Content: "Article Content"},
-    }
+    initialMigration()
+
     handleRequests()
 }
